@@ -49,12 +49,14 @@ def best_template_match(pitch_class_vector: np.ndarray):
     return (full_name, root, float(score))
 
 def classify_chord_from_pitchclass_vector(pc_vector: np.ndarray):
+    from .acorde_resultado import AcordeResultado
     """
     pc_vector: length-12 numeric vector (not necessarily normalized). 
     Returns AcordeResultado-like dict.
     """
+    thr = 0.08
+    pc_vector = np.where(pc_vector >= thr, pc_vector, 0.0)
     name, root, score = best_template_match(pc_vector)
     # For compatibility with AcordeResultado dataclass in your project:
-    from .acorde_resultado import AcordeResultado
     pcs_present = [NOTE_NAMES[i] for i in range(12) if pc_vector[i] > 0]
     return AcordeResultado(nome=name, confianca=score, notas=pcs_present)

@@ -9,24 +9,33 @@ def load_audio(path: str, sr: Optional[int] = None) -> Dict[str, Any]:
     return {"y": y, "sr": sr_ret, "duration": duration}
 
 def process_file(path: str, sr: Optional[int] = None, n_fft: int = 2048,
-                 hop_length: int = 512, use_mel: bool = True, n_mels: int = 128):
-    """Minimal pipeline: load + spectrogram + dummy chord detection placeholder."""
+                 hop_length: int = 512, bins_per_octave: int = 12, n_bins: int = 88) -> Dict[str, Any]:
+    
     audio = load_audio(path, sr=sr)
     y = audio["y"]
     sr_ret = audio["sr"]
 
-    # spectrogram
-    if use_mel:
-        S = librosa.feature.melspectrogram(y=y, sr=sr_ret, n_fft=n_fft,
-                                           hop_length=hop_length, n_mels=n_mels, power=2.0)
-        S_db = librosa.power_to_db(S, ref=np.max)
-        freqs = librosa.mel_frequencies(n_mels=n_mels, fmin=0, fmax=sr_ret/2.0)
-    else:
-        S = np.abs(librosa.stft(y=y, n_fft=n_fft, hop_length=hop_length))**2
-        S_db = librosa.power_to_db(S, ref=np.max)
-        freqs = np.linspace(0, sr_ret/2.0, S_db.shape[0])
+    #CQT
+    C = librosa.cqt(
+        y=y, 
+        sr=sr_ret,
+        hop_length=hop_length,
+        n_bins=n_bins,
+        bins_per_octave=bins_per_octave
+    )
 
-    times = librosa.frames_to_time(np.arange(S_db.shape[1]), sr=sr_ret, hop_length=hop_length)
+    #magnitude spectrogram
+    C_mag = np.abs(C)
+    S_db = librosa.amplitude_to_db(C_mag, ref=np.max)
+    freqs = librosa.cqt_frequencies(n_bins=n_bins,
+                                    fmin=librosa.note_to_hz('C1'),
+                                    bins_per_octave=bins_per_octave)
+    #tempo
+    times = librosa.frames_to_time(
+        np.arange(
+            S_db.shape[1]),
+        sr=sr_ret, 
+        hop_length=hop_length)
 
     # placeholder chords detection: returns empty lists (controller will apply more robust method)
     chords = {"labels": [], "times": times, "confidences": []}
