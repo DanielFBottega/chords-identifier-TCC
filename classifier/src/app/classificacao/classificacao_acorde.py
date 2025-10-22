@@ -1,62 +1,79 @@
-# src/app/classificacao/classificacao_acorde.py
-from typing import List
-from .acorde_resultado import AcordeResultado
+from dataclasses import dataclass
 import numpy as np
 
-NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"]
+@dataclass
+class Acorde:
+    nome: str
+    confianca: float
+    notas: list
 
-# Templates defined in pitch-class indices (0=C .. 11=B)
-TEMPLATES = {
-    "maj":  [0, 4, 7],
-    "min":  [0, 3, 7],
-    "5":    [0, 7],
-    "7":    [0, 4, 7, 10],   # dominant 7
-    "maj7": [0, 4, 7, 11],   # major 7
-    "m7":   [0, 3, 7, 10],   # minor 7
+NOTAS = ['C', 'C#', 'D', 'D#', 'E', 'F',
+         'F#', 'G', 'G#', 'A', 'A#', 'B']
+
+PADROES = {
+    "maj": [0, 4, 7],
+    "min": [0, 3, 7],
+    "7": [0, 4, 7, 10],
+    "maj7": [0, 4, 7, 11],
+    "min7": [0, 3, 7, 10],
+    "dim": [0, 3, 6],
+    "aug": [0, 4, 8],
+    "sus2": [0, 2, 7],
+    "sus4": [0, 5, 7]
 }
 
-def pc_vector_from_offsets(offsets):
-    v = np.zeros(12, dtype=float)
-    for o in offsets:
-        v[o % 12] = 1.0
-    return v
 
-TEMPLATE_VECS = {k: pc_vector_from_offsets(v) for k, v in TEMPLATES.items()}
+def notas_para_indices(notas):
+    """Remove oitavas e converte para índices 0–11."""
+    base_notes = list(set([n[:-1].replace('♯', '#').replace('♭', 'b') for n in notas]))
+    indices = []
+    for n in base_notes:
+        if n in NOTAS:
+            indices.append(NOTAS.index(n))
+        elif "b" in n:  # nota bemol
+            i = (NOTAS.index(n.replace("b", "#")) - 1) % 12 if n.replace("b", "#") in NOTAS else None
+            if i is not None:
+                indices.append(i)
+    return sorted(set(indices))
 
-def best_template_match(pitch_class_vector: np.ndarray):
-    """
-    pitch_class_vector: length-12 non-negative (can be normalized)
-    Returns: (best_name, best_root_index, best_score)
-    """
-    if np.linalg.norm(pitch_class_vector) == 0:
-        return ("Nenhum", None, 0.0)
 
-    vnorm = pitch_class_vector / (np.linalg.norm(pitch_class_vector) + 1e-9)
-    best = (None, None, -1.0)
-    for root in range(12):
-        for tname, tvec in TEMPLATE_VECS.items():
-            # shift template so that template root aligns with 'root'
-            templ = np.roll(tvec, root)
-            tnorm = templ / (np.linalg.norm(templ) + 1e-9)
-            score = float(np.dot(vnorm, tnorm))  # cosine because normalized
-            if score > best[2]:
-                best = (tname, root, score)
-    # name like Amaj7 etc.
-    tname, root, score = best
-    if root is None:
-        return ("Indefinido", None, 0.0)
-    full_name = NOTE_NAMES[root] + (tname if tname != "5" else "5")
-    return (full_name, root, float(score))
+def diferencas_intervalares(indices, raiz):
+    """Retorna os intervalos relativos à nota raiz."""
+    return sorted([(i - raiz) % 12 for i in indices])
 
-def classify_chord_from_pitchclass_vector(pc_vector: np.ndarray):
-    from .acorde_resultado import AcordeResultado
-    """
-    pc_vector: length-12 numeric vector (not necessarily normalized). 
-    Returns AcordeResultado-like dict.
-    """
-    thr = 0.08
-    pc_vector = np.where(pc_vector >= thr, pc_vector, 0.0)
-    name, root, score = best_template_match(pc_vector)
-    # For compatibility with AcordeResultado dataclass in your project:
-    pcs_present = [NOTE_NAMES[i] for i in range(12) if pc_vector[i] > 0]
-    return AcordeResultado(nome=name, confianca=score, notas=pcs_present)
+
+def calcular_confianca(intervalos, shape):
+    """Calcula confiança baseada em interseção e notas extras."""
+    intersec = len(set(intervalos) & set(shape))
+    extras = len(set(intervalos) - set(shape))
+    total = len(shape)
+    score = (intersec / total) - (extras * 0.15)
+    return max(score, 0.0)
+
+
+def classify_chord_from_notes(notas_detectadas):
+    if len(notas_detectadas) < 2:
+        return Acorde(nome="?", confianca=0.0, notas=notas_detectadas)
+
+    idxs = notas_para_indices(notas_detectadas)
+    if not idxs:
+        return Acorde(nome="?", confianca=0.0, notas=notas_detectadas)
+
+    melhores = []
+    for raiz in idxs:
+        intervalos = diferencas_intervalares(idxs, raiz)
+        for nome, shape in PADROES.items():
+            score = calcular_confianca(intervalos, shape)
+            # bônus se os intervalos incluírem terça e quinta (base do acorde)
+            if 4 in intervalos or 3 in intervalos:
+                score += 0.1
+            if 7 in intervalos:
+                score += 0.05
+            melhores.append((score, NOTAS[raiz], nome))
+
+    melhores.sort(reverse=True, key=lambda x: x[0])
+    top = melhores[0]
+
+    confianca = round(min(top[0], 1.0), 2)
+    nome_final = f"{top[1]}{top[2]}"
+    return Acorde(nome=nome_final, confianca=confianca, notas=notas_detectadas)

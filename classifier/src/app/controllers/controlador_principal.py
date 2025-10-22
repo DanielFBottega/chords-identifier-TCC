@@ -1,7 +1,7 @@
-# src/app/controllers/controlador_principal.py
 from typing import Dict, Any
 from src.app.core.processar_audio import process_file
-from src.app.classificacao.classificacao_acorde import classify_chord_from_pitchclass_vector
+from src.app.classificacao.classificacao_acorde import classify_chord_from_notes
+from src.app.core.vetor_chroma import create_chroma_figure
 import numpy as np
 import librosa
 
@@ -10,53 +10,31 @@ class ControladorPrincipal:
         pass
 
     def processar_arquivo_audio(self, path: str) -> Dict[str, Any]:
-        out = process_file(path)
-        # load audio at pipeline sr
-        y, sr = librosa.load(path, sr=out["audio"]["sr"], mono=True)
+        # Extrai dados espectrais
+        data = process_file(path)
+        y, sr = data["y"], data["sr"]
 
-        # Parameters
-        hop_length = 512
-        bins_per_octave = 12
-        n_bins = 88
+        # Calcula vetor chroma (para visualização)
+        chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+        chroma_mean = np.mean(chroma, axis=1)
+        chroma_norm = chroma_mean / np.sum(chroma_mean)
+        pc_vector = np.where(chroma_norm > 0.1, chroma_norm, 0.0)
+        if np.sum(pc_vector) > 0:
+            pc_vector = librosa.util.normalize(pc_vector, norm=1)
 
-        #CQT
-        C = librosa.cqt(
-            y=y, 
-            sr=sr,
-            hop_length=hop_length,
-            n_bins=n_bins,
-            bins_per_octave=bins_per_octave
-        )
-        C_mag = np.abs(C)
+        # Figura do chroma
+        fig_chroma, _, notas_fig = create_chroma_figure(y, sr)
 
+        # Classificação harmônica
+        print(data['detected_notes'])
+        chord_result = classify_chord_from_notes(data["detected_notes"])
 
-        #Chroma
-        chroma = librosa.feature.chroma_cqt(
-            y=y,
-            sr=sr,
-            hop_length=hop_length,
-            n_chroma=12,
-            bins_per_octave=bins_per_octave
-        )
-
-        # vetor médio
-        pc_vector = np.mean(chroma, axis=1)
-
-        # normalização
-        pc_vector = pc_vector / (np.sum(pc_vector) + 1e-6)
-
-        # threshold simples para limpar resíduos
-        threshold = 0.05
-        pc_vector = np.where(pc_vector > threshold, pc_vector, 0.0)
-
-        # classificação
-        chord_result = classify_chord_from_pitchclass_vector(pc_vector)
-
-        #notas detectadas
-        detected_notes = chord_result.notas
-
-
-        out["detected_notes"] = detected_notes
-        out["chord_result"] = chord_result
-        out["_pc_vector"] = pc_vector.tolist()
-        return out
+        # Monta resultado final compatível com o main_demo
+        return {
+            "spectrogram": data["spectrogram"],
+            "harmonic_peaks": data["harmonic_peaks"],
+            "detected_notes": chord_result.notas,
+            "chord_result": chord_result,
+            "_pc_vector": pc_vector.tolist(),
+            "chroma_figure": fig_chroma
+        }
