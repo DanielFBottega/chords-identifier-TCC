@@ -1,4 +1,3 @@
-
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
@@ -10,32 +9,56 @@ import matplotlib.pyplot as plt
 from src.app.controllers.controlador_principal import ControladorPrincipal
 from src.app.core.espectrograma import create_spectrogram_figure
 
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Protótipo - Identificação de Acordes")
+        self.title("Protótipo Para Identificação de Acordes Musicais")
         self.geometry("780x720")
         self.configure(bg="white")
 
-        tk.Label(self, text="Protótipo Para Identificação de Acordes Musicais", font=("Segoe UI", 14, "bold"), bg="#1976d2", fg="white").pack(fill="x")
-        tk.Button(self, text="Carregar Arquivo de Áudio", bg="#2e7d32", fg="white", command=self._abrir).pack(pady=8)
+        self.ctrl = ControladorPrincipal()
+        tk.Label(self, text="Protótipo Para Identificação de Acordes Musicais",
+            font=("Segoe UI", 14, "bold"), bg="#1976d2", fg="white").pack(fill="x")
+        # ---- TELA INICIAL ----
+        self.frame_inicio = tk.Frame(self, bg="white")
+        self.frame_inicio.pack(expand=True)
+        self.btn_inicio = tk.Button(
+            self.frame_inicio,
+            text="Carregar Arquivo de Áudio",
+            bg="#2e7d32",
+            fg="white",
+            font=("Segoe UI", 11, "bold"),
+            command=self._abrir
+        )
+        self.btn_inicio.pack(pady=200)
+
+
+        # ---- TELA PRINCIPAL (INICIALMENTE OCULTA) ----
+        self.frame_main = tk.Frame(self, bg="white")
+
+        tk.Button(self.frame_main, text="Carregar Arquivo de Áudio",
+                  bg="#2e7d32", fg="white", command=self._abrir).pack(pady=8)
 
         self._section("Espectrograma")
-        self.img_spec = tk.Label(self, bg="white", bd=1, relief="solid")
+        self.img_spec = tk.Label(self.frame_main, bg="white", bd=1, relief="solid")
         self.img_spec.pack(fill="both", padx=12, pady=6)
 
         self._section("Notas detectadas (CQT reduzido)")
-        self.img_chroma = tk.Label(self, bg="white", bd=1, relief="solid")
+        self.img_chroma = tk.Label(self.frame_main, bg="white", bd=1, relief="solid")
         self.img_chroma.pack(fill="both", padx=12, pady=6)
 
         self._section("Resultado")
-        self.lbl_result = tk.Label(self, text="—", font=("Segoe UI", 12, "bold"), fg="#2e7d32", bg="white")
+        self.lbl_result = tk.Label(self.frame_main, text="—",
+                                   font=("Segoe UI", 12, "bold"),
+                                   fg="#2e7d32", bg="white")
         self.lbl_result.pack(pady=6)
 
-        self.ctrl = ControladorPrincipal()
 
+    # ==== MÉTODOS AUXILIARES ====
     def _section(self, title):
-        tk.Label(self, text=title, bg="white", font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=12, pady=(8,2))
+        tk.Label(self.frame_main, text=title, bg="white",
+                 font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=12, pady=(8,2))
 
     def _figure_to_label(self, fig, label_widget):
         buf = io.BytesIO()
@@ -47,6 +70,8 @@ class App(tk.Tk):
         label_widget.image = photo
         plt.close(fig)
 
+
+    # ==== CARREGAR ÁUDIO ====
     def _abrir(self):
         path = filedialog.askopenfilename(filetypes=[("Áudio",".wav .mp3 .flac .ogg")])
         if not path:
@@ -62,10 +87,17 @@ class App(tk.Tk):
             messagebox.showerror("Erro", str(e))
             return
 
+        # Mostrar tela principal na primeira vez
+        self.frame_inicio.pack_forget()
+        if not self.frame_main.winfo_ismapped():
+            self.frame_main.pack(fill="both", expand=True)
+
+        # Atualizar espectrograma
         spec = out["spectrogram"]
         fig_spec = create_spectrogram_figure(spec["S_db"], spec["times"], spec["freqs"])
         self._figure_to_label(fig_spec, self.img_spec)
         
+        # Atualizar chroma
         fig_chroma = out.get("chroma_figure")
         if fig_chroma:
             self._figure_to_label(fig_chroma, self.img_chroma)
@@ -75,6 +107,7 @@ class App(tk.Tk):
             ax.axis("off")
             self._figure_to_label(fig, self.img_chroma)
 
+        # Resultado
         chord = out.get("chord_result")
         if chord:
             self.lbl_result.config(text=f"{chord.nome}  ({chord.confianca*100:.0f}%)")
@@ -82,6 +115,7 @@ class App(tk.Tk):
             self.lbl_result.config(text="—")
 
 
+# ==== MODO TERMINAL ====
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1:
@@ -93,4 +127,3 @@ if __name__ == "__main__":
         print("Notas Detectadas:", result["chord_result"].notas)
     else:
         App().mainloop()
-
